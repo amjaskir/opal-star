@@ -1,0 +1,55 @@
+#!/bin/bash
+
+# This is an example batch script for slurm on Oscar
+# 
+# The commands for slurm start with #SBATCH
+# All slurm commands need to come before the program 
+# you want to run.
+#
+# This is a bash script, so any line that starts with # is
+# a comment.  If you need to comment out an #SBATCH line 
+# use ##SBATCH 
+#
+# To submit this script to slurm do:
+#    sbatch grid.search
+# To use frank lab condo use:
+#	 sbatch --account=bibs-frankmj-condo grid.search
+# To use new cluster:
+# 	 sbatch --account=carney-frankmj-condo grid.search
+#
+# Once the job starts you will see a file MySerialJob-****.out
+# The **** will be the slurm JobID
+
+# --- Start of slurm commands -----------
+
+# use the frank carney clusters
+#SBATCH --account=carney-frankmj-condo
+
+# Request specified runtime:
+#SBATCH --time=10:00:00
+
+# Default resources are 1 core with 2.8GB of memory.
+# Use more memory (4GB):
+##SBATCH --mem=4G
+
+# MaxArraySize is 10001 so cannot exceed 10000
+# maximum number of combinations for grid_search.py is 1000
+# Upperbound should = arg6 - 1     
+##SBATCH --array=0-449        ######################################### Make sure this is updated!!!!!
+#SBATCH --array=33,34,35,36,44,46,47,48,417
+
+# Specify a job name:
+#SBATCH -J ALU80
+
+# Specify an output file
+# %j is a special variable that is replaced by the JobID when 
+# job starts
+#SBATCH -o ./output/ALU80-%j.out
+#SBATCH -e ./output/ALU80-%j.err
+
+#----- End of slurm commands ----
+
+echo "Starting job $SLURM_ARRAY_TASK_ID"
+# 							job          	env    n_trials	n_states	split	
+python3 grid_search.py $SLURM_ARRAY_TASK_ID "80" 500 		5000 		450 	
+# python3 grid_search.py $SLURM_ARRAY_TASK_ID "80" 500 		5000 		450

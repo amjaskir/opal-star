@@ -1,0 +1,71 @@
+#!/bin/bash
+
+# This is an example batch script for slurm on Oscar
+# 
+# The commands for slurm start with #SBATCH
+# All slurm commands need to come before the program 
+# you want to run.
+#
+# This is a bash script, so any line that starts with # is
+# a comment.  If you need to comment out an #SBATCH line 
+# use ##SBATCH 
+#
+# To submit this script to slurm do:
+#    sbatch grid.search
+# To use frank lab condo use:
+#	 sbatch --account=bibs-frankmj-condo grid.search
+#
+# Once the job starts you will see a file MySerialJob-****.out
+# The **** will be the slurm JobID
+
+# --- Start of slurm commands -----------
+
+# Request specified runtime:
+#SBATCH --time=3:00:00
+
+# Default resources are 1 core with 2.8GB of memory.
+# Use more memory (4GB):
+##SBATCH --mem=4G
+
+# MaxArraySize is 10001 so cannot exceed 10000
+# maximum number of combinations for grid_search.py is 800
+# Upperbound should = arg6 - 1     
+#SBATCH --array=0-159                       ################################## Make sure this is updated
+
+# Specify a job name:
+#SBATCH -J GridSearch
+
+# Specify an output file
+# %j is a special variable that is replaced by the JobID when 
+# job starts
+#SBATCH -o ./output_grid/GridSearch-%j.out
+#SBATCH -e ./output_grid/GridSearch-%j.err
+
+#----- End of slurm commands ----
+
+echo "Starting job $SLURM_ARRAY_TASK_ID"
+# Standard OpAL, thresh 10
+# 							job              env   n_trials,n_states,norm,split
+# python3 grid_search.py $SLURM_ARRAY_TASK_ID "rich" 40 10000 0 800
+# python3 grid_search.py $SLURM_ARRAY_TASK_ID "lean" 40 10000 0 800
+# python3 grid_search.py $SLURM_ARRAY_TASK_ID "rich_90_80_70" 40 10000 0 800
+# python3 grid_search.py $SLURM_ARRAY_TASK_ID "lean_30_20_10" 40 10000 0 800
+
+# python3 grid_search.py $SLURM_ARRAY_TASK_ID "rich" 40 10000 1 800
+# python3 grid_search.py $SLURM_ARRAY_TASK_ID "lean" 40 10000 1 800
+# python3 grid_search.py $SLURM_ARRAY_TASK_ID "rich_90_80_70" 40 10000 1 800
+# python3 grid_search.py $SLURM_ARRAY_TASK_ID "lean_30_20_10" 40 10000 1 800
+
+
+# Bayesian Critic
+# approx 2-3 hours for 4 of these
+# 							job              env   n_trials,n_states,norm,split
+# python3 grid_search_bayes.py $SLURM_ARRAY_TASK_ID "rich" 40 10000 0 160
+# python3 grid_search_bayes.py $SLURM_ARRAY_TASK_ID "lean" 40 10000 0 160
+# python3 grid_search_bayes.py $SLURM_ARRAY_TASK_ID "rich_90_80_70" 40 10000 0 160
+# python3 grid_search_bayes.py $SLURM_ARRAY_TASK_ID "lean_30_20_10" 40 10000 0 160
+
+# python3 grid_search_bayes.py $SLURM_ARRAY_TASK_ID "rich" 40 10000 1 160
+# python3 grid_search_bayes.py $SLURM_ARRAY_TASK_ID "lean" 40 10000 1 160
+python3 grid_search_bayes.py $SLURM_ARRAY_TASK_ID "rich_90_80_70" 40 10000 1 160
+python3 grid_search_bayes.py $SLURM_ARRAY_TASK_ID "lean_30_20_10" 40 10000 1 160

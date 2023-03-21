@@ -1,0 +1,6 @@
+matplotlib==3.3.4
+numpy==1.20.1
+scikit-learn==0.24.1
+scipy==1.6.1
+sklearn==0.0
+
