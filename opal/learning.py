@@ -11,18 +11,17 @@ from scipy.stats import beta as beta_rv
 
 import time
 
-def simulate(params,n_states,n_trials,v0=0.0,crit="S",env = "80_10_2",\
-	mod = "constant", k=8., phi = 3,
+def simulate(params,n_states,n_trials,\
+	v0=0.5,r_mag=1,l_mag=-1,env = "80_10_2",\
+	crit="SA",\
+	mod = "constant", k=20., phi = 1,
 	rho=0.0, baselinerho = 0.0, threshRho = 0, threshRand = 0, 
 	rnd_seeds = None,\
 	norm=False,mag=1,norm_type = None,hebb=True,variant = None,\
 	anneal = False, T = 100.0,use_var=False,\
-	full=False,r_mag=1,l_mag=-1,
-	gamble = False, p_gamble = .25,
-	ELS=False,decay=False,gamma=1.,
-	decay_to_prior = False, decay_to_prior_gamma = 1.,
-	switch = None, env_switch = "30_10_2",
-	pgrad=False,
+	gamble = False, p_gamble = .25,\
+	decay_to_prior = False, decay_to_prior_gamma = 1.,\
+	switch = None, env_switch = "30_10_2",\
 	forced_actions = None, forced_rewards = None):
 	"""
 	Simulates learning in specified environment, each a multiarm
@@ -31,43 +30,66 @@ def simulate(params,n_states,n_trials,v0=0.0,crit="S",env = "80_10_2",\
 	by critic value or set to specified constant value 
 
 	Inputs:
-	params - tuple of (alphaC, alphaA, beta)
+	params 	 - tuple of (alphaC, alphaA, beta)
 			 - alphaC, learning rate of the critic
 			 - alphaA, learning rate of the actor
 			 - beta, softmax inverse temp for policy
+
 	n_states - number of states of learning to simulate
 	n_trials - number of trials of learning within each state
-	v0 - critic initialization value
-	crit - "S" or "SA"
-		   - "S"  critic tracks overall state value
-		   - "SA" critic tracks state-action pairs
-	env - specified environment with reward probabilities of options
-		  see environments.py for options
-	mod - "constant", rho set to constant value throughout 
-		- "value", rho modulated online by learned critic value
-				   max critic value if critic is tracking state-action pairs
+
+	v0 		- critic initialization value
+	r_mag 	- reward mag
+	l_mag 	- loss mag
+	env 	- specified environment with reward probabilities of options
+		  		see environments.py for options
+				  
+	crit 	- "S" or "SA"
+		   	- "S"  critic tracks overall state value
+		   	- "SA" critic tracks state-action pairs
+			- "Bayes-SA" Bayesian critic
+
+	mod - "beta", meta-critic using beta dist of env value
+		- "constant", rho set to constant value throughout 
 		- "avg_value", if critic tracks state-action values, modulates rho
 					   by average over all values
-
-	k - multiplier for rho modulation
+	k 	- multiplier for rho modulation
+	phi - param for # of std above/below .5 to modulate rho
 	rho - if mod == "constant", desired rho level
+	baselinerho - fixed rho around which to modulate
+	threshRho 	- time point before which rho is constant and set to specified rho 
+
+	threshRand - time before which policy is random
+
 	rnd_seed - sets random seed generator to desired seed at beginning of 
 			   simulations
-	norm - T/F, normalize actor learning PE between [0,1] according to specified mag
-	mag - scalar, unsigned magnitude of largest feedback for normalization
-	hebb - T/F, use three-hactor hebbian term
+
+	norm 	- T/F, normalize actor learning PE between [0,1] according to specified mag
+	mag 	- scalar, unsigned magnitude of largest feedback for normalization
+
+	hebb 	- T/F, use three-hactor hebbian term
 	variant - str, specifies OpAL variant, see code for description
 				"flip", "bmod","lrate"
-	full 	- model gets full information
-	phi - param for # of std above/below .5 to modulate rho
 
+	anneal 		- anneal actor learning rates?
+	T 			- magnitude of annealing
+	use_var 	- use variance of meta-critic to modulate annealing?
+
+	FIG 10 SPECIFIC PARAMS
+	gamble 		- gamble scenario?
+	p_gamble	- probability of gamble payoff
+
+	APPENDIX FIGS
 	switch - introduce switch points?
 	env_switch - environment post switch point
 
+	FIG 8C SPECIFIC PARAMS
+	forced_actions - forced agent to take specific action on each trial
+	forced_rewards - forced reward for each trial
 
 	Outputs:
 	states - contains tracker for each simulated learning state
-		   - see classes.py for more detail
+			 See opal.py for state details
 	"""
 
 	##########################################################################
@@ -84,8 +106,6 @@ def simulate(params,n_states,n_trials,v0=0.0,crit="S",env = "80_10_2",\
 			chance = state.r_mag[0]*.5 + state.l_mag[0]*.5 
 			if mod == "constant": 		# artificially set rho to specific value, e.g. rho = 0
 				state.rho[t] = rho + baselinerho
-			elif mod == "value":		# modulate rho by state's critic value, max if crit = SA 	NOTE TO SELF: In lean environments, this is slightly inaccurate - opal maybe choosing the correct option, but the max may still be the other option. In this case, average is more appropriate 
-				state.rho[t] = np.max(state.V[t] - chance)*k
 			elif mod == "avg_value":	# avg state critic value (if crit = SA)
 				state.rho[t] = np.mean(state.V[t] - chance)*k
 			elif mod == "avg_gamble_value":
@@ -99,23 +119,13 @@ def simulate(params,n_states,n_trials,v0=0.0,crit="S",env = "80_10_2",\
 				# calculated in opal.py during critic update
 				mean = state.mean[t]
 
-				# assume rmag and lmag are same for both options
-				infer_val = state.r_mag[0]*mean + state.l_mag[0]*(1-mean) # in [0,1], like rho
-				chance = state.r_mag[0]*.5 + state.l_mag[0]*.5 # value that dictates chance
-				
 				# am I sufficiently above/below 50%?
-				# lb = mean - phi*state.std[t]
-				# ub = mean + phi*state.std[t]
-				# ranges = np.array([lb,ub])
-				# check_me = sum(ranges < .5)
-				# sufficient = ((check_me == 2) or (check_me == 0))
 				thresh = phi*state.std[t]
 				cond1 = (mean - thresh) > .5 # lower bound above .5
 				cond2 = (mean + thresh) < .5 # upper bound below .5
 				sufficient = cond1 or cond2
 
-				# is sufficiently above/below .5 or 
-				# always modify based on mean
+				# is sufficiently above/below .5 
 				if sufficient:
 					# calc rho val direction
 					# above p(reward) = .50 is positive, below negative
@@ -215,7 +225,7 @@ def simulate(params,n_states,n_trials,v0=0.0,crit="S",env = "80_10_2",\
 				if env == "ECincreasing":
 					# 0, P:1/50		X: [2,4.5)	C: [1,2.25)
 					# 1, P:49/50	X: [4.5,8]	C: [2.25,4]
-					# NOTE: ignored inclusive/exclusive for now
+					# NOTE: ignored inclusive/exclusive 
 					Xrand = np.random.binomial(1,49/50,n_uncommon)
 					Crand = np.random.binomial(1,49/50,n_uncommon)
 					def increasing_X(bi):
@@ -233,7 +243,7 @@ def simulate(params,n_states,n_trials,v0=0.0,crit="S",env = "80_10_2",\
 				else:
 					# 0, P:49/50	X: [2,5.5]	C: [1,2.75]
 					# 1, P:1/50		X: (5.5,8]	C: (2.75,4]
-					# NOTE: ignored inclusive/exclusive for now
+					# NOTE: ignored inclusive/exclusive 
 					Xrand = np.random.binomial(1,1/50,n_uncommon)
 					Crand = np.random.binomial(1,1/50,n_uncommon)
 					def decreasing_X(bi):
@@ -296,7 +306,7 @@ def simulate(params,n_states,n_trials,v0=0.0,crit="S",env = "80_10_2",\
 		lmag = np.zeros(n_options) + l_mag
 
 		new_state = OpAL(n_trials,crit,v0,n_options,probs,rmag,lmag,\
-							anneal=anneal,use_var=use_var,T=T,norm_type=norm_type, pgrad=pgrad)
+							anneal=anneal,use_var=use_var,T=T,norm_type=norm_type)
 		return new_state
 	
 	##########################################################################
@@ -338,7 +348,7 @@ def simulate(params,n_states,n_trials,v0=0.0,crit="S",env = "80_10_2",\
 				state.policy(thresh=threshRand,forced_actions=forced_actions,forced_rewards=forced_rewards,state_idx=s) 
 
 			# update critic with PE
-			state.critic(alpha_c,gamble=gamble,decay=decay,gamma=gamma)	
+			state.critic(alpha_c,gamble=gamble)	
 
 			# update actors with PE 
 			# with efficient coding, actors set explicitly, so no need to update

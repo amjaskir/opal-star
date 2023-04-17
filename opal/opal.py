@@ -34,11 +34,11 @@ class OpAL:
 		def init_crit(crit):
 			""" Helper to intialize critic
 			"""
-			if crit == "S":		# critic value, V(s)	
+			if crit == "S":			# critic value, V(s)	
 				return np.zeros(sz+1) + v0	
-			elif crit == "S-ctx":	# for palmineteri
+			elif crit == "S-ctx":	# for palmineteri sims
 				return np.zeros((sz+1, int(n_options/2))) + v0					
-			elif crit == "SA":  # critic value, V(s,a)
+			elif crit == "SA":  	# critic value, Q(s,a)
 				return np.zeros((sz+1, n_options)) + v0	
 			elif crit == "Bayes":
 				return np.ones((sz+1,2))   # beta func: alpha (reward count), beta (no reward count)	
@@ -84,7 +84,7 @@ class OpAL:
 		# NOTE - self.params also available in learning.py script
 
 		### Simulation specific elements ###
-		# Bayesian values
+		# Meta-critic bayesian values
 		self.mean = np.zeros(sz+1)	
 		self.std = np.zeros(sz+1)
 		self.var = np.zeros(sz+1)
@@ -99,7 +99,7 @@ class OpAL:
 		# Inference paradigm
 		self.prior = np.zeros((sz+1,2)) + .5		# probability high or low state
 													# initialized to chance
-		# Rutledge data
+		# Rutledge data sims
 		self.trial_type = trial_type				# 0-gain,1-loss-2-mixed
 		self.sure_mags  = np.zeros(sz) 				# mag of sure thing
 		self.r_mags	    = np.zeros(sz) 				# gain, relative to sure
@@ -110,7 +110,7 @@ class OpAL:
 		self.V_tr    	= np.zeros(sz+1)			# Learned avg gamble value 
 		self.PE_tr		= np.zeros(sz)				# PE according to V_tr
 
-		# Palminteri
+		# Palminteri sims
 		self.ctx = None								# context of actions
 		self.ctx_order = []							# ctx order
 		self.C_in_ctx = np.zeros(sz,dtype=np.int)	# context choice
@@ -141,7 +141,7 @@ class OpAL:
 			expAct = np.exp(newAct)
 			ps = expAct/np.sum(expAct)
 		self.SM[idx,:] = ps
-		self.H[idx] = -np.sum(ps*np.log2(ps))
+		self.H[idx] = -np.sum(ps*np.log2(ps))	# entropy of policy
 		if np.isnan(self.H[idx]): #deterministic, one action has 100% probability of being selected
 			self.H[idx] = 0
 		cs_ps = np.cumsum(ps) # cumulative sum of probabilities
@@ -256,7 +256,7 @@ class OpAL:
 			self.V[idx+1] = self.V[idx]	# carry over values for all choices
 			self.V[idx+1,C] = self.V[idx,C] + alpha*PE  # update chosen
 
-			# increase alpha/beta counts of separate dist
+			# increase alpha/beta counts of separate (meta-crit) dist
 			# no Bayesian critic, use beta dist over avg reward of all actions
 			R = self.R[idx]
 			self.beta_dist[idx+1,0] = self.beta_dist[idx,0] + R
@@ -302,20 +302,14 @@ class OpAL:
 		self.var[idx+1] = var
 		self.std[idx+1] = np.sqrt(var)
 
-		if decay:
-			# print("decaying now")
-			# print("chosen: %d" %C)
+		# decay bayesian critic (not needed)
+		if decay: 
 			for i in np.arange(self.n_options):
 				if not (i == C):
 					# decay unchosen 
 					choice_idx = i*2
-					# print("decaying %d" %i)
-					# print(self.V[idx+1,choice_idx])
-					# print(self.V[idx+1,choice_idx+1])
 					self.V[idx+1,choice_idx] = self.V[idx+1,choice_idx]*gamma # alpha
 					self.V[idx+1,choice_idx+1] = self.V[idx+1,choice_idx+1]*gamma # beta
-					# print(self.V[idx+1,choice_idx])
-					# print(self.V[idx+1,choice_idx+1])
 
 
 	def act (self,alpha,norm=False,mag=1,var=None,\
@@ -360,7 +354,7 @@ class OpAL:
 
 		# set alphaG and alphaN
 		if var == "lrate":
-			# TODO: THIS IS INCORRECT
+			# TODO: THIS IS NO LONGER SUPPORTED
 			err = 'lrate no longer supported'
 			raise Exception(err)
 		
@@ -416,7 +410,7 @@ class OpAL:
 			updateG = updateG*(lim - self.QG[idx,C])
 			updateN = updateN*(lim - self.QN[idx,C])
 			
-                # use policy gradient? (simplifies to 1-p(C))  
+        # use policy gradient? (simplifies to 1-p(C))  
 		if pgrad: 
 			ps= self.SM[idx]
 			# use below if just one action
@@ -890,231 +884,3 @@ class OpAL:
 				infer_val = self.r_mag[0]*mean + self.l_mag[0]*(1-mean)
 				PE = reward - infer_val 
 			self.PE[idx] = PE
-
-# Tracks and updates information for each trial across ALL STATES/OpAL instances
-# Used when agent is experiencing learning across multiple states that are
-# interleaved, which may generate state PEs
-class TrialTracker:
-	def __init__(self, n_states):
-		self.idx = 0                                # which state to update
-		self.state_priors = np.empty((n_states,2)) 	# current state priors
-		self.state_priors[:] = np.nan	
-
-
-
-	#### Other draft act variants ####
-	# def act_normalize_PE (self,alpha,mag=1):
-	# 	"""
-	# 	Normalizes PE by "memory" of largest recent
-	# 	magnitude reward
-	# 	"""
-	# 	idx = self.idx
-	# 	PE = self.PE[idx]
-	# 	C = self.C[idx]	# choice
-
-	# 	self.QG[idx+1] = self.QG[idx] #carry over values
-	# 	self.QN[idx+1] = self.QN[idx] 
-
-	# 	# normalize PE between -1 and 1 relative to largest
-	# 	# experienced reward magnitude
-	# 	normPE = np.tanh(PE/mag)
-	# 	#normPE = 2*(1/(1 + np.exp(-PE/mag))-.5)
-
-	# 	# scale update speed by floating threshold
-	# 	self.QG[idx+1,C] = self.QG[idx,C] + alpha*normPE*self.QG[idx,C]
-	# 	self.QN[idx+1,C] = self.QN[idx,C] + alpha*-normPE*self.QN[idx,C]
-
-	# 	# actor values should not be negative, represent population activations
-	# 	self.QG[idx+1,C] = np.max([0,self.QG[idx+1,C]])
-	# 	self.QN[idx+1,C] = np.max([0,self.QN[idx+1,C]])
-
-	# def act_normalize_PE_prob (self,alpha,mag=1):
-	# 	"""
-	# 	Normalizes PE by "memory" of largest recent
-	# 	magnitude reward, update QG according to probability
-	# 	of selecting that option
-	# 	"""
-	# 	idx = self.idx
-	# 	PE = self.PE[idx]
-	# 	C = self.C[idx]	# choice
-
-	# 	self.QG[idx+1] = self.QG[idx] #carry over values
-	# 	self.QN[idx+1] = self.QN[idx] 
-
-	# 	# normalize PE between -1 and 1 relative to largest
-	# 	# experienced reward magnitude
-	# 	normPE = np.tanh(PE/mag)
-
-	# 	# determine strength of update by probability of chosing action
-	# 	update = 1 - self.SM[idx,C]
-
-	# 	# scale update speed by floating threshold
-	# 	self.QG[idx+1,C] = self.QG[idx,C] + alpha*normPE*self.QG[idx,C]*update
-	# 	self.QN[idx+1,C] = self.QN[idx,C] + alpha*-normPE*self.QN[idx,C]*update
-
-	# 	# actor values should not be negative, represent population activations
-	# 	self.QG[idx+1,C] = np.max([0,self.QG[idx+1,C]])
-	# 	self.QN[idx+1,C] = np.max([0,self.QN[idx+1,C]])
-
-	# def act_normalize_PE_avg (self,alpha,mag=1,beta=1):
-	# 	"""
-	# 	Normalizes PE by "memory" of largest recent
-	# 	magnitude reward
-	# 	"""
-	# 	idx = self.idx
-	# 	PE = self.PE[idx]
-	# 	C = self.C[idx]	# choice
-
-	# 	self.QG[idx+1] = self.QG[idx] #carry over values
-	# 	self.QN[idx+1] = self.QN[idx] 
-
-	# 	# normalize PE between -1 and 1 relative to largest
-	# 	# experienced reward magnitude
-	# 	normPE = np.tanh(PE/mag)
-
-	# 	# determine strength of nonlinearity
-	# 	gbar = np.mean(self.QG[idx])
-	# 	nbar = np.mean(self.QN[idx])
-	# 	logitG = 1/(1 + np.exp(beta*(self.QG[idx,C] - gbar)))
-	# 	logitN = 1/(1 + np.exp(beta*(self.QN[idx,C] - nbar)))
-
-	# 	# scale update speed by floating threshold
-	# 	self.QG[idx+1,C] = self.QG[idx,C] + alpha*logitG*self.QG[idx,C]*normPE
-	# 	self.QN[idx+1,C] = self.QN[idx,C] + alpha*logitN*self.QN[idx,C]*-normPE
-
-	# 	# actor values should not be negative, represent population activations
-	# 	self.QG[idx+1,C] = np.max([0,self.QG[idx+1,C]])
-	# 	self.QN[idx+1,C] = np.max([0,self.QN[idx+1,C]])
-
-	# def act_normalize_PE_all (self,alpha,mag=1,beta=1):
-	# 	"""
-	# 	Normalizes PE by "memory" of largest recent
-	# 	magnitude reward
-	# 	"""
-	# 	idx = self.idx
-	# 	PE = self.PE[idx]
-	# 	C = self.C[idx]	# choice
-
-	# 	self.QG[idx+1] = self.QG[idx] #carry over values
-	# 	self.QN[idx+1] = self.QN[idx] 
-
-	# 	# normalize PE between -1 and 1 relative to largest
-	# 	# experienced reward magnitude
-	# 	normPE = np.tanh(PE/mag)
-
-	# 	# determine strength of nonlinearity
-	# 	gbar = np.mean(self.QG[idx])
-	# 	nbar = np.mean(self.QN[idx])
-	# 	thresh = (gbar + nbar)/2.
-	# 	logitG = 1/(1 + np.exp(beta*(self.QG[idx,C] - thresh)))
-	# 	logitN = 1/(1 + np.exp(beta*(self.QN[idx,C] - thresh)))
-
-	# 	# scale update speed by floating threshold
-	# 	self.QG[idx+1,C] = self.QG[idx,C] + alpha*normPE*logitG*self.QG[idx,C]
-	# 	self.QN[idx+1,C] = self.QN[idx,C] + alpha*-normPE*logitN*self.QN[idx,C]
-
-	# 	# actor values should not be negative, represent population activations
-	# 	self.QG[idx+1,C] = np.max([0,self.QG[idx+1,C]])
-	# 	self.QN[idx+1,C] = np.max([0,self.QN[idx+1,C]])
-
-	# def act_normalize_avg (self,alpha,beta=1):
-	# 	"""
-	# 	Normalizes hebbian update by average population firing
-	# 	in respective G and N populations
-	# 	"""
-	# 	idx = self.idx
-	# 	PE = self.PE[idx]
-	# 	C = self.C[idx]	# choice
-
-	# 	self.QG[idx+1] = self.QG[idx] #carry over values
-	# 	self.QN[idx+1] = self.QN[idx] 
-
-	# 	# determine strength of nonlinearity
-	# 	gbar = np.mean(self.QG[idx])
-	# 	nbar = np.mean(self.QN[idx])
-	# 	logitG = 1/(1 + np.exp(beta*(self.QG[idx,C] - gbar)))
-	# 	logitN = 1/(1 + np.exp(beta*(self.QN[idx,C] - nbar)))
-
-	# 	# scale update speed by floating threshold
-	# 	self.QG[idx+1,C] = self.QG[idx,C] + alpha*logitG*self.QG[idx,C]*PE
-	# 	self.QN[idx+1,C] = self.QN[idx,C] + alpha*logitN*self.QN[idx,C]*-PE
-
-	# 	# actor values should not be negative, represent population activations
-	# 	self.QG[idx+1,C] = np.max([0,self.QG[idx+1,C]])
-	# 	self.QN[idx+1,C] = np.max([0,self.QN[idx+1,C]])
-
-	# def act_normalize_all (self,alpha,beta=1):
-	# 	"""
-	# 	Normalizes hebbian update by average firing across
-	# 	average G/N population level
-	# 	"""
-	# 	idx = self.idx
-	# 	PE = self.PE[idx]
-	# 	C = self.C[idx]	# choice
-
-	# 	self.QG[idx+1] = self.QG[idx] #carry over values
-	# 	self.QN[idx+1] = self.QN[idx] 
-
-	# 	# determine strength of nonlinearity
-	# 	gbar = np.mean(self.QG[idx])
-	# 	nbar = np.mean(self.QN[idx])
-	# 	thresh = (gbar + nbar)/2.
-	# 	logitG = 1/(1 + np.exp(beta*(self.QG[idx,C] - thresh)))
-	# 	logitN = 1/(1 + np.exp(beta*(self.QN[idx,C] - thresh)))
-
-	# 	# scale update speed by floating threshold
-	# 	self.QG[idx+1,C] = self.QG[idx,C] + alpha*logitG*self.QG[idx,C]*PE
-	# 	self.QN[idx+1,C] = self.QN[idx,C] + alpha*logitN*self.QN[idx,C]*-PE
-
-	# 	# actor values should not be negative, represent population activations
-	# 	self.QG[idx+1,C] = np.max([0,self.QG[idx+1,C]])
-	# 	self.QN[idx+1,C] = np.max([0,self.QN[idx+1,C]])
-
-	# def act_counterfact (self,alpha):
-	# 	"""   G for the chosen action goes up proportional to the 
-	# 	sum of G's across all other actions, and then a counterfactual update
-	# 	"""
-	# 	pass
-
-	# def act_prob (self,alpha):
-	# 	""" Probability of choosing more, 
-	# 	value updates less
-	# 	"""
-	# 	idx = self.idx
-	# 	PE = self.PE[idx]
-	# 	C = self.C[idx]	# choice
-
-	# 	self.QG[idx+1] = self.QG[idx] #carry over values
-	# 	self.QN[idx+1] = self.QN[idx] 
-
-	# 	# determine strength of update by probability of chosing action
-	# 	update = 1 - self.SM[idx,C]
-
-	# 	# scale update speed by floating threshold
-	# 	self.QG[idx+1,C] = self.QG[idx,C] + alpha*update*self.QG[idx,C]*PE
-	# 	self.QN[idx+1,C] = self.QN[idx,C] + alpha*update*self.QN[idx,C]*-PE
-
-	# 	# actor values should not be negative, represent population activations
-	# 	self.QG[idx+1,C] = np.max([0,self.QG[idx+1,C]])
-	# 	self.QN[idx+1,C] = np.max([0,self.QN[idx+1,C]])
-
-	# def act_softbound (self,alpha,maxq):
-	# 	"""
-	# 	Updates the Q vales for the direct (G) and indirect (NG) actors
-	# 	for the next time step for chosen action with a soft upper bound 
-	# 	on the weights
-	# 	"""
-	# 	idx = self.idx
-	# 	PE = self.PE[idx]
-	# 	C = self.C[idx]	# choice
-
-	# 	self.QG[idx+1] = self.QG[idx] #carry over values
-	# 	self.QN[idx+1] = self.QN[idx] 
-
-	# 	# update chosen with soft upper bound
-	# 	self.QG[idx+1,C] = self.QG[idx,C] + (maxq - self.QG[idx,C])*alpha*self.QG[idx,C]*PE
-	# 	self.QN[idx+1,C] = self.QN[idx,C] + (maxq - self.QN[idx,C])*alpha*self.QN[idx,C]*-PE
-
-	# 	# actor values should not be negative, represent population activations
-	# 	self.QG[idx+1,C] = np.max([0,self.QG[idx+1,C]])
-	# 	self.QN[idx+1,C] = np.max([0,self.QN[idx+1,C]])
