@@ -1,5 +1,5 @@
 # On the normative advantages of dopamine and striatal opponency for learning and choice
-## Alana Jaskir & Michael J. Frank
+## Alana Jaskir & Michael J. Frank, *elife*, 2023
 
 [Code under construction. Please excuse our mess as we tidy our code for a better user-friendly experience!]
 
